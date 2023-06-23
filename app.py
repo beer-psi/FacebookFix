@@ -115,29 +115,33 @@ async def reel(request: "Request", id: int):
     }
 
 
-async def _common_watch_handler(post_url: str):
-    async with app.ctx.session.get(post_url) as resp:
-        if not resp.ok:
-            return redirect(post_url)
-        resp_text = await resp.text()
-
+async def _get_watch_metadata(resp_text: str) -> dict[str, Any]:
     metadata = WATCH_METADATA_DATA_REGEX.search(resp_text)
     if not metadata:
-        return redirect(post_url)
+        raise Exception("Failed to get metadata")
 
     metadata = json.loads(metadata.group(1))
     stream_cache = next(
         (x for x in metadata["require"] if x[0] == "RelayPrefetchedStreamCache"), None
     )
     if not stream_cache:
-        return redirect(post_url)
-    media = stream_cache[3][1]["__bbox"]["result"]["data"]["attachments"][0]["media"]
-    comet_sections = media["creation_story"]["comet_sections"]
+        raise Exception("Failed to get metadata")
+    return stream_cache[3][1]["__bbox"]["result"]["data"]["attachments"][0]["media"]
+
+
+async def _common_watch_handler(post_url: str):
+    async with app.ctx.session.get(post_url) as resp:
+        if not resp.ok:
+            return redirect(post_url)
+        resp_text = await resp.text()
+
+    media = await _get_watch_metadata(resp_text)
     title = media["owner"]["name"]
-    description = comet_sections["message"]["story"]["message"]["text"]
+    description = media["creation_story"]["comet_sections"]["message"]["story"][
+        "message"
+    ]["text"]
 
     video_data = await _get_video_data(resp_text)
-
     url = video_data["data"]["video"]["story"]["attachments"][0]["media"][
         "playable_url_quality_hd"
     ]
@@ -169,13 +173,13 @@ async def watch(request: "Request"):
     id = request.args.get("v", "")
     if not id:
         raise BadRequest("Missing v parameter")
-    
+
     post_url = f"https://facebook.com/watch/?v={id}"
     if not UA_REGEX.search(request.headers.get("User-Agent", ""), re.IGNORECASE):
         return redirect(post_url)
-    
+
     return await _common_watch_handler(post_url)
-    
+
 
 @app.get("<username>/videos/<id:int>")
 @app.ext.template("base.html")
