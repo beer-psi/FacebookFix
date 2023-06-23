@@ -6,7 +6,7 @@ import sanic
 from sanic import Sanic, redirect, Request, HTTPResponse, BadRequest
 
 
-UA_REGEX = re.compile(r"bot|facebook|embed|got|firefox\/92|firefox\/38|curl|wget|go-http|yahoo|generator|whatsapp|preview|link|proxy|vkshare|images|analyzer|index|crawl|spider|python|cfnetwork|node") 
+UA_REGEX = re.compile(r"bot|facebook|embed|got|firefox\/92|firefox\/38|curl|wget|go-http|yahoo|generator|whatsapp|preview|link|proxy|vkshare|images|analyzer|index|crawl|spider|python|cfnetwork|node|iframely") 
 REEL_DATA_REGEX = re.compile(r"\(ScheduledApplyEach,({\"define\":\[\[\"VideoPlayerShakaPerformanceLoggerConfig\".+?)\);") 
 headers = {
     "authority": "www.facebook.com",
