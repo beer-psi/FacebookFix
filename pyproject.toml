@@ -6,6 +6,9 @@ authors = ["Your Name <you@example.com>"]
 license = "0BSD"
 readme = "README.md"
 
+[tool.isort]
+profile = "black"
+
 [tool.poetry.dependencies]
 python = "^3.11"
 sanic = "^23.3.0"

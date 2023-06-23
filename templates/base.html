@@ -42,7 +42,7 @@
     <meta http-equiv="refresh" content="0; url = {{ url }}" />
 
     {% if video is defined %}
-    <link rel="alternate" href="{{ url_for('oembed') }}?description={{ description | urlencode }}&link={{ url | urlencode }}&ttype={{ ttype }}" type="application/json+oembed">
+    <link rel="alternate" href="https://fxfacebook.beerpsi.tech{{ url_for('oembed') }}?description={{ description | urlencode }}&link={{ url | urlencode }}&ttype={{ ttype }}" type="application/json+oembed">
     {% endif %}
 </head>
 
