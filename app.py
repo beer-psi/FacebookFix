@@ -84,7 +84,7 @@ async def reel(request: "Request", id: int):
         "description": creation_story["message"]["text"],
         "video": short_form_video_context["playback_video"]["playable_url_quality_hd"],
         "width": 720,
-        "height": 1080,
+        "height": 1280,
         "ttype": "video",
     }
 
