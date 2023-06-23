@@ -115,13 +115,7 @@ async def reel(request: "Request", id: int):
     }
 
 
-@app.get("<username>/videos/<id:int>")
-@app.ext.template("base.html")
-async def videos(request: "Request", username: str, id: int):
-    post_url = f"https://facebook.com/{username}/videos/{id}"
-    if not UA_REGEX.search(request.headers.get("User-Agent", ""), re.IGNORECASE):
-        return redirect(post_url)
-
+async def _common_watch_handler(post_url: str):
     async with app.ctx.session.get(post_url) as resp:
         if not resp.ok:
             return redirect(post_url)
@@ -167,3 +161,27 @@ async def videos(request: "Request", username: str, id: int):
         "height": height,
         "ttype": "video",
     }
+
+
+@app.get("/watch")
+@app.ext.template("base.html")
+async def watch(request: "Request"):
+    id = request.args.get("v", "")
+    if not id:
+        raise BadRequest("Missing v parameter")
+    
+    post_url = f"https://facebook.com/watch/?v={id}"
+    if not UA_REGEX.search(request.headers.get("User-Agent", ""), re.IGNORECASE):
+        return redirect(post_url)
+    
+    return await _common_watch_handler(post_url)
+    
+
+@app.get("<username>/videos/<id:int>")
+@app.ext.template("base.html")
+async def videos(request: "Request", username: str, id: int):
+    post_url = f"https://facebook.com/{username}/videos/{id}"
+    if not UA_REGEX.search(request.headers.get("User-Agent", ""), re.IGNORECASE):
+        return redirect(post_url)
+
+    return await _common_watch_handler(post_url)
