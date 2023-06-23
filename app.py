@@ -75,12 +75,6 @@ async def reel(request: "Request", id: int):
     result = stream_cache[3][1]["__bbox"]["result"]
     creation_story = result["data"]["video"]["creation_story"]
     short_form_video_context = creation_story["short_form_video_context"]
-
-    all_qualities = sorted(
-        result["extensions"]["all_video_dash_prefetch_representations"][0]["representations"],
-        key=lambda x: x["width"]
-    )
-    best_quality = all_qualities[-2]
     
     return {
         "id": id,
@@ -88,9 +82,9 @@ async def reel(request: "Request", id: int):
         "title": short_form_video_context["video_owner"]["name"],
         "url": post_url,
         "description": creation_story["message"]["text"],
-        "video": best_quality["base_url"],
-        "width": best_quality["width"],
-        "height": best_quality["height"],
+        "video": short_form_video_context["playback_video"]["playable_url_quality_hd"],
+        "width": 720,
+        "height": 1080,
         "ttype": "video",
     }
 
