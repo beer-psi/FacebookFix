@@ -32,38 +32,19 @@ def finish(app, loop):
 
 @app.get("oembed.json")
 async def oembed(request: "Request") -> "HTTPResponse":
-    id = request.args.get("id")
-    if not id:
-        raise BadRequest
-
-    post_url = f"https://facebook.com/reel/{id}"
-
-    async with app.ctx.session.get(post_url) as resp:
-        if not resp.ok:
-            return redirect(post_url)
-        resp_text = await resp.text()
-    
-    data = REEL_DATA_REGEX.search(resp_text)
-    if not data:
-        raise BadRequest
-    
-    data = json.loads(data.group(1))
-
-    stream_cache = next((x for x in data["require"] if x[0] == "RelayPrefetchedStreamCache"), None)
-    if not stream_cache:
-        raise BadRequest
-    
-    result = stream_cache[3][1]["__bbox"]["result"]
-    creation_story = result["data"]["video"]["creation_story"]
-    short_form_video_context = creation_story["short_form_video_context"]
+    description = request.args.get("description", "")
+    ttype = request.args.get("type", "link")
+    link = request.args.get("link", "")
+    if not link:
+        raise BadRequest("Missing link parameter")
     return sanic.json(
         {
-            "author_name": short_form_video_context["video_owner"]["name"],
-            "author_url": post_url,
+            "author_name": description,
+            "author_url": link,
             "provider_name": "FacebookFix",
-            "provider_url": "",
+            "provider_url": "https://github.com/beerpiss/FacebookFix",
             "title": "Facebook",
-            "type": "link",
+            "type": ttype,
             "version": "1.0",
         }
     )
@@ -99,7 +80,7 @@ async def reel(request: "Request", id: int):
         result["extensions"]["all_video_dash_prefetch_representations"][0]["representations"],
         key=lambda x: x["width"]
     )
-    best_quality = all_qualities[-1]
+    best_quality = all_qualities[-2]
     
     return {
         "id": id,
@@ -110,6 +91,7 @@ async def reel(request: "Request", id: int):
         "video": best_quality["base_url"],
         "width": best_quality["width"],
         "height": best_quality["height"],
+        "ttype": "video",
     }
 
 

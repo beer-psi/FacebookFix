@@ -4,6 +4,7 @@
 <head>
     <meta content="text/html; charset=UTF-8" http-equiv="Content-Type" />
     <meta content="#2D86FF" name="theme-color" />
+    <meta property="og:site_name" content="FacebookFix">
 
     {% if card is defined %}
     <meta name="twitter:card" content="{{ card }}" />
@@ -22,7 +23,6 @@
     <meta name="twitter:player:stream:content_type" content="video/mp4" />
     {% endif %}
 
-    <meta property="og:site_name" content="FacebookFix">
     <meta property="og:url" content="{{ url }}" />
     <meta property="og:description" content="{{ description }}" />
 
@@ -42,7 +42,7 @@
     <meta http-equiv="refresh" content="0; url = {{ url }}" />
 
     {% if video is defined %}
-    <link rel="alternate" href="{{ url_for('oembed') }}?id={{ id }}" type="application/json+oembed">
+    <link rel="alternate" href="{{ url_for('oembed') }}?description={{ description | urlencode }}&link={{ url | urlencode }}&ttype={{ ttype }}" type="application/json+oembed">
     {% endif %}
 </head>
 
