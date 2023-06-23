@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "facebookfix"
+version = "0.1.0"
+description = ""
+authors = ["Your Name <you@example.com>"]
+license = "0BSD"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+sanic = "^23.3.0"
+sanic-ext = "^23.3.0"
+Jinja2 = "^3.1.2"
+esprima = "^4.0.1"
+aiohttp = "^3.8.4"
+
+[tool.poetry.group.dev.dependencies]
+black = "^23.3.0"
+isort = "^5.12.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
