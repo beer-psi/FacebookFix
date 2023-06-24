@@ -114,22 +114,21 @@ async def reel(request: "Request", id: str):
 
     width, height = hd_width_height(width, height)
 
-    description = None
-    if (message := creation_story.get("message")) is not None:
-        description = message["text"]
-
-
-    return {
+    ctx = {
         "id": id,
         "card": "player",
         "title": short_form_video_context["video_owner"]["name"],
         "url": post_url,
-        "description": description,
         "video": url,
         "width": width,
         "height": height,
         "ttype": "video",
     }
+
+    if (message := creation_story.get("message")) is not None:
+        ctx["description"] = message["text"]
+
+    return ctx
 
 
 async def _get_watch_metadata(resp_text: str) -> dict[str, Any]:
