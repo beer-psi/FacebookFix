@@ -234,14 +234,18 @@ async def _common_photo_handler(post_url: str):
         return redirect(post_url)
     data = stream_cache[3][1]["__bbox"]["result"]["data"]
 
-    return {
+    ctx = {
         "card": "summary_large_image",
         "title": data["owner"]["name"],
         "url": post_url,
-        "description": data["message"]["text"],
         "image": curr_media["image"]["uri"],
         "ttype": "photo",
     }
+
+    if data["message"] is not None:
+        ctx["description"] = data["message"]["text"]
+
+    return ctx
 
 
 @app.get("<username>/photos/<set>/<fbid>")
