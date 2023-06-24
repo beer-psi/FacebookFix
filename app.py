@@ -10,6 +10,15 @@ from yarl import URL
 
 from utils import hd_width_height
 
+
+app = Sanic(__name__)
+app.update_config(
+    {
+        "RESPONSE_TIMEOUT": 120,
+    }
+)
+
+
 UA_REGEX = re.compile(
     r"bot|facebook|embed|got|firefox\/92|firefox\/38|curl|wget|go-http|yahoo|generator|whatsapp|preview|link|proxy|vkshare|images|analyzer|index|crawl|spider|python|cfnetwork|node|iframely"
 )
@@ -26,17 +35,23 @@ PHOTO_DATA_REGEX = re.compile(
     r"\(ScheduledApplyEach,(.+?(?<!\"preloaderID\":)\"adp_CometPhotoRootContentQueryRelayPreloader_[0-9a-f]{23}\".+?)\);"
 )
 headers = {
-    "authority": "www.facebook.com",
-    "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
+    "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
     "accept-language": "en-US,en;q=0.9",
-    "cache-control": "max-age=0",
+    "cache-control": "no-cache",
+    "pragma": "no-cache",
+    "sec-ch-prefers-color-scheme": "dark",
+    "sec-ch-ua": '"Microsoft Edge";v="111", "Not(A:Brand";v="8", "Chromium";v="111"',
+    "sec-ch-ua-full-version-list": '"Microsoft Edge";v="111.0.1661.62", "Not(A:Brand";v="8.0.0.0", "Chromium";v="111.0.5563.149"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
+    "sec-ch-ua-platform-version": '"15.0.0"',
+    "sec-fetch-dest": "document",
     "sec-fetch-mode": "navigate",
+    "sec-fetch-site": "none",
+    "sec-fetch-user": "?1",
     "upgrade-insecure-requests": "1",
-    "referer": "https://www.facebook.com/",
-    "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.60 Safari/537.36",
-    "viewport-width": "1280",
+    "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/111.0.0.0 Safari/537.36 Edg/111.0.1661.62",
 }
-app = Sanic(__name__)
 
 
 @app.listener("before_server_start")
@@ -54,28 +69,33 @@ def finish(app, loop):
 async def check_ua(request: "Request"):
     url = URL(request.url)
     if not UA_REGEX.search(request.headers.get("User-Agent", ""), re.IGNORECASE):
-        url = url.with_host("facebook.com").with_port(None)
+        url = url.with_host("www.facebook.com").with_scheme("https").with_port(None)
         return redirect(str(url))
-    
+
 
 @app.exception(NotFound)
 @app.ext.template("base.html")
 async def handle_404(request: Request, exception: NotFound):
     """Copy meta tags provided by Facebook if we haven't implemented the page yet"""
 
-    post_url = str(URL(request.url).with_host("facebook.com").with_port(None))
+    post_url = str(
+        URL(request.url)
+        .with_host("www.facebook.com")
+        .with_scheme("https")
+        .with_port(None)
+    )
 
     async with app.ctx.session.get(post_url) as resp:
         if not resp.ok:
             return redirect(post_url)
         resp_text = await resp.text()
-    
+
     soup = BeautifulSoup(resp_text, "lxml")
 
     ctx = {
         "url": post_url,
     }
-    
+
     if (tag := soup.select_one("meta[property='og:title']")) is not None:
         ctx["title"] = str(tag["content"])
     if (tag := soup.select_one("meta[property='og:description']")) is not None:
@@ -84,7 +104,7 @@ async def handle_404(request: Request, exception: NotFound):
         ctx["image"] = str(tag["content"])
         ctx["card"] = "summary_large_image"
         ctx["ttype"] = "photo"
-    
+
     return ctx
 
 
@@ -126,7 +146,7 @@ async def _get_video_data(resp_text: str):
 @app.get("/reel/<id>")
 @app.ext.template("base.html")
 async def reel(request: "Request", id: str):
-    post_url = f"https://facebook.com/reel/{id}"
+    post_url = f"https://www.facebook.com/reel/{id}"
 
     async with app.ctx.session.get(post_url) as resp:
         if not resp.ok:
@@ -216,8 +236,13 @@ async def _common_watch_handler(post_url: str):
 @app.get("/watch")
 @app.ext.template("base.html")
 async def watch(request: "Request"):
-    post_url = str(URL(request.url).with_host("facebook.com").with_port(None))
-    
+    post_url = str(
+        URL(request.url)
+        .with_host("www.facebook.com")
+        .with_scheme("https")
+        .with_port(None)
+    )
+
     id = request.args.get("v", "")
     if not id:
         return redirect(post_url)
@@ -228,8 +253,8 @@ async def watch(request: "Request"):
 @app.get("<username>/videos/<id>")
 @app.ext.template("base.html")
 async def videos(request: "Request", username: str, id: str):
-    post_url = f"https://facebook.com/{username}/videos/{id}"
-    
+    post_url = f"https://www.facebook.com/{username}/videos/{id}"
+
     return await _common_watch_handler(post_url)
 
 
@@ -242,23 +267,24 @@ async def _common_photo_handler(post_url: str):
     photo_data = PHOTO_DATA_REGEX.search(resp_text)
     if not photo_data:
         return redirect(post_url)
-    
+
     photo_data = json.loads(photo_data.group(1))
     stream_cache = next(
         (x for x in photo_data["require"] if x[0] == "RelayPrefetchedStreamCache"), None
     )
     if not stream_cache:
         return redirect(post_url)
-    
+
     curr_media = stream_cache[3][1]["__bbox"]["result"]["data"]["currMedia"]
 
     photo_metadata = PHOTO_METADATA_REGEX.search(resp_text)
     if not photo_metadata:
         return redirect(post_url)
-    
+
     photo_metadata = json.loads(photo_metadata.group(1))
     stream_cache = next(
-        (x for x in photo_metadata["require"] if x[0] == "RelayPrefetchedStreamCache"), None
+        (x for x in photo_metadata["require"] if x[0] == "RelayPrefetchedStreamCache"),
+        None,
     )
     if not stream_cache:
         return redirect(post_url)
@@ -281,7 +307,7 @@ async def _common_photo_handler(post_url: str):
 @app.get("<username>/photos/<set>/<fbid>")
 @app.ext.template("base.html")
 async def photos(request: "Request", username: str, set: str, fbid: str):
-    post_url = f"https://facebook.com/{username}/photos/{set}/{fbid}"
+    post_url = f"https://www.facebook.com/{username}/photos/{set}/{fbid}"
 
     return await _common_photo_handler(post_url)
 
@@ -290,11 +316,15 @@ async def photos(request: "Request", username: str, set: str, fbid: str):
 @app.get("photo.php", name="photo_php")
 @app.ext.template("base.html")
 async def photo(request: "Request"):
-    post_url = str(URL(request.url).with_host("facebook.com").with_port(None))
-    
+    post_url = str(
+        URL(request.url)
+        .with_host("www.facebook.com")
+        .with_scheme("https")
+        .with_port(None)
+    )
+
     fbid = request.args.get("fbid", "")
     if not fbid:
         return redirect(post_url)
 
     return await _common_photo_handler(post_url)
-
