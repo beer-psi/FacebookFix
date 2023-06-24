@@ -110,6 +110,9 @@ async def handle_404(request: Request, exception: SanicException):
         ctx["image"] = str(tag["content"])
         ctx["card"] = "summary_large_image"
         ctx["ttype"] = "photo"
+    
+    if ctx.get("title") is None and ctx.get("description") is None and ctx.get("image") is None:
+        return redirect(post_url)
 
     return ctx
 
