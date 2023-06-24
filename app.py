@@ -19,7 +19,7 @@ WATCH_METADATA_DATA_REGEX = re.compile(
     r"\(ScheduledApplyEach,(.+?\"CometFeedStoryDefaultMessageRenderingStrategy\".+?)\);"
 )
 PHOTO_METADATA_REGEX = re.compile(
-    r"\(ScheduledApplyEach,(.+?\"CometFeedStoryActorPhotoStrategy\.react\".+?)\);"
+    r"\(ScheduledApplyEach,(.+?\"__typename\":\"CometFeedStoryActorPhotoStrategy\".+?)\);"
 )
 PHOTO_DATA_REGEX = re.compile(
     r"\(ScheduledApplyEach,(.+?(?<!\"preloaderID\":)\"adp_CometPhotoRootContentQueryRelayPreloader_[0-9a-f]{23}\".+?)\);"
@@ -203,16 +203,12 @@ async def videos(request: "Request", username: str, id: str):
     return await _common_watch_handler(post_url)
 
 
-@app.get("<username>/photos/<set>/<fbid>")
-@app.ext.template("base.html")
-async def photos(request: "Request", username: str, set: str, fbid: str):
-    post_url = f"https://facebook.com/{username}/photos/{set}/{fbid}"
-
+async def _common_photo_handler(post_url: str):
     async with app.ctx.session.get(post_url) as resp:
         if not resp.ok:
             return redirect(post_url)
         resp_text = await resp.text()
-    
+
     photo_data = PHOTO_DATA_REGEX.search(resp_text)
     if not photo_data:
         return redirect(post_url)
@@ -246,3 +242,27 @@ async def photos(request: "Request", username: str, set: str, fbid: str):
         "image": curr_media["image"]["uri"],
         "ttype": "photo",
     }
+
+
+@app.get("<username>/photos/<set>/<fbid>")
+@app.ext.template("base.html")
+async def photos(request: "Request", username: str, set: str, fbid: str):
+    post_url = f"https://facebook.com/{username}/photos/{set}/{fbid}"
+
+    return await _common_photo_handler(post_url)
+
+
+@app.get("photo")
+@app.ext.template("base.html")
+async def photo(request: "Request"):
+    fbid = request.args.get("fbid", "")
+
+    if not fbid:
+        url = URL(request.url)
+        url = url.with_host("www.facebook.com")
+        return redirect(str(url))
+    
+    post_url = f"https://facebook.com/photo/?fbid={fbid}"
+
+    return await _common_photo_handler(post_url)
+
