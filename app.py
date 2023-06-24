@@ -257,6 +257,7 @@ async def photos(request: "Request", username: str, set: str, fbid: str):
 
 
 @app.get("photo")
+@app.get("photo.php")
 @app.ext.template("base.html")
 async def photo(request: "Request"):
     fbid = request.args.get("fbid", "")
