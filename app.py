@@ -4,7 +4,8 @@ from typing import Any
 
 import aiohttp
 import sanic
-from sanic import BadRequest, HTTPResponse, Request, Sanic, redirect
+from bs4 import BeautifulSoup
+from sanic import HTTPResponse, Request, Sanic, redirect, SanicException, NotFound
 from yarl import URL
 
 from utils import hd_width_height
@@ -49,6 +50,44 @@ def finish(app, loop):
     loop.close()
 
 
+@app.on_request
+async def check_ua(request: "Request"):
+    url = URL(request.url)
+    if not UA_REGEX.search(request.headers.get("User-Agent", ""), re.IGNORECASE):
+        url = url.with_host("facebook.com").with_port(None)
+        return redirect(str(url))
+    
+
+@app.exception(NotFound)
+@app.ext.template("base.html")
+async def handle_404(request: Request, exception: NotFound):
+    """Copy meta tags provided by Facebook if we haven't implemented the page yet"""
+
+    post_url = str(URL(request.url).with_host("facebook.com").with_port(None))
+
+    async with app.ctx.session.get(post_url) as resp:
+        if not resp.ok:
+            return redirect(post_url)
+        resp_text = await resp.text()
+    
+    soup = BeautifulSoup(resp_text, "lxml")
+
+    ctx = {
+        "url": post_url,
+    }
+    
+    if (tag := soup.select_one("meta[property='og:title']")) is not None:
+        ctx["title"] = str(tag["content"])
+    if (tag := soup.select_one("meta[property='og:description']")) is not None:
+        ctx["description"] = str(tag["content"])
+    if (tag := soup.select_one("meta[property='og:image']")) is not None:
+        ctx["image"] = str(tag["content"])
+        ctx["card"] = "summary_large_image"
+        ctx["ttype"] = "photo"
+    
+    return ctx
+
+
 @app.get("oembed.json")
 async def oembed(request: "Request") -> "HTTPResponse":
     title = request.args.get("title", "")
@@ -68,18 +107,10 @@ async def oembed(request: "Request") -> "HTTPResponse":
     )
 
 
-@app.on_request
-async def check_ua(request: "Request"):
-    url = URL(request.url)
-    if not UA_REGEX.search(request.headers.get("User-Agent", ""), re.IGNORECASE):
-        url = url.with_host("www.facebook.com")
-        return redirect(str(url))
-
-
 async def _get_video_data(resp_text: str):
     data = REEL_DATA_REGEX.search(resp_text)
     if not data:
-        raise Exception("Failed to get video data")
+        raise SanicException("Failed to get video data")
 
     data = json.loads(data.group(1))
 
@@ -87,7 +118,7 @@ async def _get_video_data(resp_text: str):
         (x for x in data["require"] if x[0] == "RelayPrefetchedStreamCache"), None
     )
     if not stream_cache:
-        raise Exception("Failed to get video data")
+        raise SanicException("Failed to get video data")
 
     return stream_cache[3][1]["__bbox"]["result"]
 
@@ -99,7 +130,7 @@ async def reel(request: "Request", id: str):
 
     async with app.ctx.session.get(post_url) as resp:
         if not resp.ok:
-            raise Exception("Failed to get video data")
+            raise SanicException("Failed to get video data")
         resp_text = await resp.text()
 
     result = await _get_video_data(resp_text)
@@ -134,14 +165,14 @@ async def reel(request: "Request", id: str):
 async def _get_watch_metadata(resp_text: str) -> dict[str, Any]:
     metadata = WATCH_METADATA_DATA_REGEX.search(resp_text)
     if not metadata:
-        raise Exception("Failed to get metadata")
+        raise SanicException("Failed to get metadata")
 
     metadata = json.loads(metadata.group(1))
     stream_cache = next(
         (x for x in metadata["require"] if x[0] == "RelayPrefetchedStreamCache"), None
     )
     if not stream_cache:
-        raise Exception("Failed to get metadata")
+        raise SanicException("Failed to get metadata")
     return stream_cache[3][1]["__bbox"]["result"]["data"]["attachments"][0]["media"]
 
 
@@ -171,7 +202,6 @@ async def _common_watch_handler(post_url: str):
     width, height = hd_width_height(width, height)
 
     return {
-        "id": id,
         "card": "player",
         "title": title,
         "url": post_url,
@@ -186,11 +216,11 @@ async def _common_watch_handler(post_url: str):
 @app.get("/watch")
 @app.ext.template("base.html")
 async def watch(request: "Request"):
+    post_url = str(URL(request.url).with_host("facebook.com").with_port(None))
+    
     id = request.args.get("v", "")
     if not id:
-        return redirect("https://facebook.com/watch")
-
-    post_url = f"https://facebook.com/watch/?v={id}"
+        return redirect(post_url)
 
     return await _common_watch_handler(post_url)
 
@@ -260,14 +290,11 @@ async def photos(request: "Request", username: str, set: str, fbid: str):
 @app.get("photo.php", name="photo_php")
 @app.ext.template("base.html")
 async def photo(request: "Request"):
-    fbid = request.args.get("fbid", "")
-
-    if not fbid:
-        url = URL(request.url)
-        url = url.with_host("www.facebook.com")
-        return redirect(str(url))
+    post_url = str(URL(request.url).with_host("facebook.com").with_port(None))
     
-    post_url = f"https://facebook.com/photo/?fbid={fbid}"
+    fbid = request.args.get("fbid", "")
+    if not fbid:
+        return redirect(post_url)
 
     return await _common_photo_handler(post_url)
 
