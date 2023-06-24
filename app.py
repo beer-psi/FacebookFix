@@ -114,12 +114,17 @@ async def reel(request: "Request", id: str):
 
     width, height = hd_width_height(width, height)
 
+    description = None
+    if (message := creation_story.get("message")) is not None:
+        description = message["text"]
+
+
     return {
         "id": id,
         "card": "player",
         "title": short_form_video_context["video_owner"]["name"],
         "url": post_url,
-        "description": creation_story["message"]["text"],
+        "description": description,
         "video": url,
         "width": width,
         "height": height,
@@ -234,8 +239,6 @@ async def photos(request: "Request", username: str, set: str, fbid: str):
         return redirect(post_url)
     data = stream_cache[3][1]["__bbox"]["result"]["data"]
 
-
-    
     return {
         "card": "summary_large_image",
         "title": data["owner"]["name"],
