@@ -5,6 +5,7 @@ from typing import Any
 import aiohttp
 import sanic
 from sanic import BadRequest, HTTPResponse, Request, Sanic, redirect
+from yarl import URL
 
 from utils import hd_width_height
 
@@ -16,6 +17,12 @@ REEL_DATA_REGEX = re.compile(
 )
 WATCH_METADATA_DATA_REGEX = re.compile(
     r"\(ScheduledApplyEach,(.+?\"CometFeedStoryDefaultMessageRenderingStrategy\".+?)\);"
+)
+PHOTO_METADATA_REGEX = re.compile(
+    r"\(ScheduledApplyEach,(.+?\"CometFeedStoryActorPhotoStrategy\.react\".+?)\);"
+)
+PHOTO_DATA_REGEX = re.compile(
+    r"\(ScheduledApplyEach,(.+?(?<!\"preloaderID\":)\"adp_CometPhotoRootContentQueryRelayPreloader_[0-9a-f]{23}\".+?)\);"
 )
 headers = {
     "authority": "www.facebook.com",
@@ -44,22 +51,29 @@ def finish(app, loop):
 
 @app.get("oembed.json")
 async def oembed(request: "Request") -> "HTTPResponse":
-    description = request.args.get("description", "")
-    ttype = request.args.get("type", "link")
+    title = request.args.get("title", "")
+    user = request.args.get("user", "")
     link = request.args.get("link", "")
-    if not link:
-        raise BadRequest("Missing link parameter")
+    ttype = request.args.get("type", "link")
     return sanic.json(
         {
-            "author_name": description,
+            "author_name": user,
             "author_url": link,
             "provider_name": "FacebookFix",
             "provider_url": "https://github.com/beerpiss/FacebookFix",
-            "title": "Facebook",
+            "title": title,
             "type": ttype,
             "version": "1.0",
         }
     )
+
+
+@app.on_request
+async def check_ua(request: "Request"):
+    url = URL(request.url)
+    if not UA_REGEX.search(request.headers.get("User-Agent", ""), re.IGNORECASE):
+        url = url.with_host("www.facebook.com")
+        return redirect(str(url))
 
 
 async def _get_video_data(resp_text: str):
@@ -78,12 +92,10 @@ async def _get_video_data(resp_text: str):
     return stream_cache[3][1]["__bbox"]["result"]
 
 
-@app.get("/reel/<id:int>")
+@app.get("/reel/<id>")
 @app.ext.template("base.html")
-async def reel(request: "Request", id: int):
+async def reel(request: "Request", id: str):
     post_url = f"https://facebook.com/reel/{id}"
-    if not UA_REGEX.search(request.headers.get("User-Agent", ""), re.IGNORECASE):
-        return redirect(post_url)
 
     async with app.ctx.session.get(post_url) as resp:
         if not resp.ok:
@@ -172,20 +184,63 @@ async def _common_watch_handler(post_url: str):
 async def watch(request: "Request"):
     id = request.args.get("v", "")
     if not id:
-        raise BadRequest("Missing v parameter")
+        return redirect("https://facebook.com/watch")
 
     post_url = f"https://facebook.com/watch/?v={id}"
-    if not UA_REGEX.search(request.headers.get("User-Agent", ""), re.IGNORECASE):
-        return redirect(post_url)
 
     return await _common_watch_handler(post_url)
 
 
-@app.get("<username>/videos/<id:int>")
+@app.get("<username>/videos/<id>")
 @app.ext.template("base.html")
-async def videos(request: "Request", username: str, id: int):
+async def videos(request: "Request", username: str, id: str):
     post_url = f"https://facebook.com/{username}/videos/{id}"
-    if not UA_REGEX.search(request.headers.get("User-Agent", ""), re.IGNORECASE):
-        return redirect(post_url)
-
+    
     return await _common_watch_handler(post_url)
+
+
+@app.get("<username>/photos/<set>/<fbid>")
+@app.ext.template("base.html")
+async def photos(request: "Request", username: str, set: str, fbid: str):
+    post_url = f"https://facebook.com/{username}/photos/{set}/{fbid}"
+
+    async with app.ctx.session.get(post_url) as resp:
+        if not resp.ok:
+            return redirect(post_url)
+        resp_text = await resp.text()
+    
+    photo_data = PHOTO_DATA_REGEX.search(resp_text)
+    if not photo_data:
+        return redirect(post_url)
+    
+    photo_data = json.loads(photo_data.group(1))
+    stream_cache = next(
+        (x for x in photo_data["require"] if x[0] == "RelayPrefetchedStreamCache"), None
+    )
+    if not stream_cache:
+        return redirect(post_url)
+    
+    curr_media = stream_cache[3][1]["__bbox"]["result"]["data"]["currMedia"]
+
+    photo_metadata = PHOTO_METADATA_REGEX.search(resp_text)
+    if not photo_metadata:
+        return redirect(post_url)
+    
+    photo_metadata = json.loads(photo_metadata.group(1))
+    stream_cache = next(
+        (x for x in photo_metadata["require"] if x[0] == "RelayPrefetchedStreamCache"), None
+    )
+    if not stream_cache:
+        return redirect(post_url)
+    data = stream_cache[3][1]["__bbox"]["result"]["data"]
+
+
+    
+    return {
+        "card": "summary_large_image",
+        "title": data["owner"]["name"],
+        "url": post_url,
+        "description": data["message"]["text"],
+        "image": curr_media["image"]["uri"],
+        "ttype": "photo",
+    }

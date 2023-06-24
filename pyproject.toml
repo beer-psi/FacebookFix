@@ -16,6 +16,7 @@ sanic-ext = "^23.3.0"
 Jinja2 = "^3.1.2"
 esprima = "^4.0.1"
 aiohttp = "^3.8.4"
+yarl = "^1.9.2"
 
 [tool.poetry.group.dev.dependencies]
 black = "^23.3.0"

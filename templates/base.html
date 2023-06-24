@@ -11,9 +11,11 @@
     {% endif %}
     {% if title is defined %}
     <meta name="twitter:title" content="{{ title }}" />
+    <meta name="og:title" content="{{ title }}" />
     {% endif %}
     {% if image is defined %}
     <meta name="twitter:image" content="{{ image }}" />
+    <meta property="og:image" content="{{ image }}" />
     {% endif %}
 
     {% if video is defined %}
@@ -25,10 +27,6 @@
 
     <meta property="og:url" content="{{ url }}" />
     <meta property="og:description" content="{{ description }}" />
-
-    {% if image is defined %}
-    <meta property="og:image" content="{{ image }}" />
-    {% endif %}
 
     {% if video is defined %}
     <meta property="og:video" content="{{ video }}" />
@@ -42,8 +40,12 @@
     <meta http-equiv="refresh" content="0; url = {{ url }}" />
 
     {% if video is defined %}
-    <link rel="alternate" href="https://fxfacebook.beerpsi.tech{{ url_for('oembed') }}?description={{ description | urlencode }}&link={{ url | urlencode }}&ttype={{ ttype }}" type="application/json+oembed">
+    <link rel="alternate" href="https://fxfacebook.beerpsi.tech{{ url_for('oembed') }}?user={{ description | urlencode }}&title=Facebook&link={{ url | urlencode }}&link={{ url | urlencode }}&type={{ ttype }}" type="application/json+oembed">
+    {% elif image is defined %}
+    <link rel="alternate" href="https://fxfacebook.beerpsi.tech{{ url_for('oembed') }}?title={{ title | urlencode }}&user=Facebook&link={{ url | urlencode }}&type={{ ttype }}" type="application/json+oembed">
     {% endif %}
+
+
 </head>
 
 <body>
