@@ -11,6 +11,10 @@ from yarl import URL
 from utils import hd_width_height
 
 
+class ExtractorError(SanicException):
+    pass
+
+
 app = Sanic(__name__)
 app.update_config(
     {
@@ -73,10 +77,12 @@ async def check_ua(request: "Request"):
         return redirect(str(url))
 
 
-@app.exception(NotFound)
+@app.exception(NotFound, ExtractorError)
 @app.ext.template("base.html")
-async def handle_404(request: Request, exception: NotFound):
-    """Copy meta tags provided by Facebook if we haven't implemented the page yet"""
+async def handle_404(request: Request, exception: SanicException):
+    """Copy meta tags provided by Facebook if we haven't implemented the page yet,
+    or if our extractor failed.
+    """
 
     post_url = str(
         URL(request.url)
@@ -130,7 +136,7 @@ async def oembed(request: "Request") -> "HTTPResponse":
 async def _get_video_data(resp_text: str):
     data = REEL_DATA_REGEX.search(resp_text)
     if not data:
-        raise SanicException("Failed to get video data")
+        raise ExtractorError("Failed to get video data")
 
     data = json.loads(data.group(1))
 
@@ -138,7 +144,7 @@ async def _get_video_data(resp_text: str):
         (x for x in data["require"] if x[0] == "RelayPrefetchedStreamCache"), None
     )
     if not stream_cache:
-        raise SanicException("Failed to get video data")
+        raise ExtractorError("Failed to get video data")
 
     return stream_cache[3][1]["__bbox"]["result"]
 
@@ -150,7 +156,7 @@ async def reel(request: "Request", id: str):
 
     async with app.ctx.session.get(post_url) as resp:
         if not resp.ok:
-            raise SanicException("Failed to get video data")
+            raise ExtractorError("Failed to get video data")
         resp_text = await resp.text()
 
     result = await _get_video_data(resp_text)
@@ -185,21 +191,21 @@ async def reel(request: "Request", id: str):
 async def _get_watch_metadata(resp_text: str) -> dict[str, Any]:
     metadata = WATCH_METADATA_DATA_REGEX.search(resp_text)
     if not metadata:
-        raise SanicException("Failed to get metadata")
+        raise ExtractorError("Failed to get metadata")
 
     metadata = json.loads(metadata.group(1))
     stream_cache = next(
         (x for x in metadata["require"] if x[0] == "RelayPrefetchedStreamCache"), None
     )
     if not stream_cache:
-        raise SanicException("Failed to get metadata")
+        raise ExtractorError("Failed to get metadata")
     return stream_cache[3][1]["__bbox"]["result"]["data"]["attachments"][0]["media"]
 
 
 async def _common_watch_handler(post_url: str):
     async with app.ctx.session.get(post_url) as resp:
         if not resp.ok:
-            return redirect(post_url)
+            raise ExtractorError
         resp_text = await resp.text()
 
     media = await _get_watch_metadata(resp_text)
@@ -245,7 +251,7 @@ async def watch(request: "Request"):
 
     id = request.args.get("v", "")
     if not id:
-        return redirect(post_url)
+        raise ExtractorError
 
     return await _common_watch_handler(post_url)
 
@@ -261,25 +267,25 @@ async def videos(request: "Request", username: str, id: str):
 async def _common_photo_handler(post_url: str):
     async with app.ctx.session.get(post_url) as resp:
         if not resp.ok:
-            return redirect(post_url)
+            raise ExtractorError
         resp_text = await resp.text()
 
     photo_data = PHOTO_DATA_REGEX.search(resp_text)
     if not photo_data:
-        return redirect(post_url)
+        raise ExtractorError
 
     photo_data = json.loads(photo_data.group(1))
     stream_cache = next(
         (x for x in photo_data["require"] if x[0] == "RelayPrefetchedStreamCache"), None
     )
     if not stream_cache:
-        return redirect(post_url)
+        raise ExtractorError
 
     curr_media = stream_cache[3][1]["__bbox"]["result"]["data"]["currMedia"]
 
     photo_metadata = PHOTO_METADATA_REGEX.search(resp_text)
     if not photo_metadata:
-        return redirect(post_url)
+        raise ExtractorError
 
     photo_metadata = json.loads(photo_metadata.group(1))
     stream_cache = next(
@@ -287,7 +293,7 @@ async def _common_photo_handler(post_url: str):
         None,
     )
     if not stream_cache:
-        return redirect(post_url)
+        raise ExtractorError
     data = stream_cache[3][1]["__bbox"]["result"]["data"]
 
     ctx = {
@@ -325,6 +331,6 @@ async def photo(request: "Request"):
 
     fbid = request.args.get("fbid", "")
     if not fbid:
-        return redirect(post_url)
+        raise ExtractorError
 
     return await _common_photo_handler(post_url)
