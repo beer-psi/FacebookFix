@@ -23,6 +23,10 @@
     <meta name="twitter:player:height" content="{{ height }}" />
     <meta name="twitter:player:stream" content="{{ video }}" />
     <meta name="twitter:player:stream:content_type" content="video/mp4" />
+    {% elif player is defined %}
+    <meta name="twitter:player" content="{{ player }}" />
+    <meta name="twitter:player:width" content="{{ width }}" />
+    <meta name="twitter:player:height" content="{{ height }}" />
     {% endif %}
 
     <meta property="og:url" content="{{ url }}" />

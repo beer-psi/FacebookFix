@@ -75,32 +75,49 @@ async def check_ua(request: "Request"):
     if url.path != "/oembed.json" and not UA_REGEX.search(request.headers.get("User-Agent", ""), re.IGNORECASE):
         url = url.with_host("www.facebook.com").with_scheme("https").with_port(None)
         return redirect(str(url))
+    
+@app.on_request
+async def fetch_response_text(request: "Request"):
+    if request.url != "/oembed.json":
+        post_url = str(
+            URL(request.url)
+            .with_host("www.facebook.com")
+            .with_scheme("https")
+            .with_port(None)
+        )
+        request.ctx.post_url = post_url
+
+        async with app.ctx.session.get(post_url) as resp:
+            if not resp.ok:
+                return redirect(post_url)
+            request.ctx.resp_text = await resp.text()
 
 
 @app.exception(NotFound, ExtractorError)
 @app.ext.template("base.html")
 async def handle_404(request: Request, exception: SanicException):
-    """Copy meta tags provided by Facebook if we haven't implemented the page yet,
-    or if our extractor failed.
+    """Blanket handler for unimplemented paths, or paths with failed extractors
     """
 
-    post_url = str(
-        URL(request.url)
-        .with_host("www.facebook.com")
-        .with_scheme("https")
-        .with_port(None)
-    )
-
-    async with app.ctx.session.get(post_url) as resp:
-        if not resp.ok:
-            return redirect(post_url)
-        resp_text = await resp.text()
+    post_url = request.ctx.post_url
+    resp_text = request.ctx.resp_text
 
     soup = BeautifulSoup(resp_text, "lxml")
 
     ctx = {
         "url": post_url,
     }
+
+    if (tag := soup.select_one("meta[name='twitter:player']")) is not None:
+        player_url = URL(str(tag["content"]))
+        video_url = player_url.query.get("href")
+
+        if video_url is not None and not isinstance(exception, ExtractorError):
+            return redirect(URL(video_url).path)
+        else:
+            ctx["player"] = str(player_url)
+            ctx["width"] = player_url.query.get("width", "0")
+            ctx["height"] = player_url.query.get("height", "0")
 
     if (tag := soup.select_one("meta[property='og:title']")) is not None:
         ctx["title"] = str(tag["content"])
@@ -165,12 +182,8 @@ async def _get_video_data(resp_text: str):
 @app.get("/reel/<id>")
 @app.ext.template("base.html")
 async def reel(request: "Request", id: str):
-    post_url = f"https://www.facebook.com/reel/{id}"
-
-    async with app.ctx.session.get(post_url) as resp:
-        if not resp.ok:
-            raise ExtractorError("Failed to get video data")
-        resp_text = await resp.text()
+    post_url = request.ctx.post_url
+    resp_text = request.ctx.resp_text
 
     result = await _get_video_data(resp_text)
     creation_story = result["data"]["video"]["creation_story"]
@@ -215,11 +228,9 @@ async def _get_watch_metadata(resp_text: str) -> dict[str, Any]:
     return stream_cache[3][1]["__bbox"]["result"]["data"]["attachments"][0]["media"]
 
 
-async def _common_watch_handler(post_url: str):
-    async with app.ctx.session.get(post_url) as resp:
-        if not resp.ok:
-            raise ExtractorError
-        resp_text = await resp.text()
+async def _common_watch_handler(request: "Request"):
+    post_url = request.ctx.post_url
+    resp_text = request.ctx.resp_text
 
     media = await _get_watch_metadata(resp_text)
     title = media["owner"]["name"]
@@ -255,33 +266,22 @@ async def _common_watch_handler(post_url: str):
 @app.get("/watch")
 @app.ext.template("base.html")
 async def watch(request: "Request"):
-    post_url = str(
-        URL(request.url)
-        .with_host("www.facebook.com")
-        .with_scheme("https")
-        .with_port(None)
-    )
-
     id = request.args.get("v", "")
     if not id:
-        raise ExtractorError
-
-    return await _common_watch_handler(post_url)
+        raise NotFound
+    return await _common_watch_handler(request)
 
 
 @app.get("<username>/videos/<id>")
 @app.ext.template("base.html")
 async def videos(request: "Request", username: str, id: str):
-    post_url = f"https://www.facebook.com/{username}/videos/{id}"
+    request.ctx.post_url = f"https://www.facebook.com/{username}/videos/{id}"
+    return await _common_watch_handler(request)
 
-    return await _common_watch_handler(post_url)
 
-
-async def _common_photo_handler(post_url: str):
-    async with app.ctx.session.get(post_url) as resp:
-        if not resp.ok:
-            raise ExtractorError
-        resp_text = await resp.text()
+async def _common_photo_handler(request: "Request"):
+    post_url = request.ctx.post_url
+    resp_text = request.ctx.resp_text
 
     photo_data = PHOTO_DATA_REGEX.search(resp_text)
     if not photo_data:
@@ -326,24 +326,16 @@ async def _common_photo_handler(post_url: str):
 @app.get("<username>/photos/<set>/<fbid>")
 @app.ext.template("base.html")
 async def photos(request: "Request", username: str, set: str, fbid: str):
-    post_url = f"https://www.facebook.com/{username}/photos/{set}/{fbid}"
-
-    return await _common_photo_handler(post_url)
+    request.ctx.post_url = f"https://www.facebook.com/{username}/photos/{set}/{fbid}"
+    return await _common_photo_handler(request)
 
 
 @app.get("photo")
 @app.get("photo.php", name="photo_php")
 @app.ext.template("base.html")
 async def photo(request: "Request"):
-    post_url = str(
-        URL(request.url)
-        .with_host("www.facebook.com")
-        .with_scheme("https")
-        .with_port(None)
-    )
-
     fbid = request.args.get("fbid", "")
     if not fbid:
-        raise ExtractorError
+        raise NotFound
 
-    return await _common_photo_handler(post_url)
+    return await _common_photo_handler(request)
