@@ -72,7 +72,7 @@ def finish(app, loop):
 @app.on_request
 async def check_ua(request: "Request"):
     url = URL(request.url)
-    if not UA_REGEX.search(request.headers.get("User-Agent", ""), re.IGNORECASE):
+    if url.path != "/oembed.json" and not UA_REGEX.search(request.headers.get("User-Agent", ""), re.IGNORECASE):
         url = url.with_host("www.facebook.com").with_scheme("https").with_port(None)
         return redirect(str(url))
 
@@ -110,6 +110,16 @@ async def handle_404(request: Request, exception: SanicException):
         ctx["image"] = str(tag["content"])
         ctx["card"] = "summary_large_image"
         ctx["ttype"] = "photo"
+    
+    if (tag := soup.select_one("script[type='application/ld+json']")) is not None and tag.string is not None:
+        data = json.loads(tag.string)
+        ctx["description"] = data["articleBody"]
+        ctx["title"] = data["author"]["name"]    
+
+        if (image := data.get("image")) is not None:
+            ctx["image"] = image["contentUrl"]
+            ctx["card"] = "summary_large_image"
+            ctx["ttype"] = "photo"
     
     if ctx.get("title") is None and ctx.get("description") is None and ctx.get("image") is None:
         return redirect(post_url)
