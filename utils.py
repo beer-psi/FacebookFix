@@ -17,8 +17,10 @@ def shorten_description(description: str, limit: int = 100) -> str:
         description = splits[0]
         for split in splits[1:]:
             if len(description) + len(split) > limit:
+                description = description.strip()
+                description += "..."
                 break
             description += "\n" + split
     if len(description) > limit:
-        description = description[:limit]
-    return description.strip() + "..."
+        description = description[:limit] + "..."
+    return description.strip()
