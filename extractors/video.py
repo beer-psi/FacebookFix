@@ -49,6 +49,8 @@ async def extract_video(post_url: str, resp_text: str):
     description = media["creation_story"]["comet_sections"]["message"]["story"][
         "message"
     ]["text"]
+    if len(description) > 100:
+        description = description[:100] + "..."
 
     video_data = await get_video_data(resp_text)
     url = video_data["data"]["video"]["story"]["attachments"][0]["media"][
@@ -101,5 +103,7 @@ async def extract_reel(post_url: str, resp_text: str) -> dict[str, Any]:
 
     if (message := creation_story.get("message")) is not None:
         ctx["description"] = message["text"]
+        if len(ctx["description"]) > 100:
+            ctx["description"] = ctx["description"][:100] + "..."
 
     return ctx

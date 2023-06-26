@@ -10,6 +10,9 @@ def extract_meta(
 ) -> dict[str, Any] | str | None:
     ctx = {}
 
+    if (tag := soup.css_first("meta[property='og:description']")) is not None:
+        ctx["description"] = str(tag.attributes["content"])
+
     if (tag := soup.css_first("meta[name='twitter:player']")) is not None:
         player_url = URL(str(tag.attributes["content"]))
         video_url = player_url.query.get("href")
@@ -21,14 +24,18 @@ def extract_meta(
             ctx["width"] = player_url.query.get("width", "0")
             ctx["height"] = player_url.query.get("height", "0")
 
+            if len(ctx["description"]) > 100:
+                ctx["description"] = ctx["description"][:100] + "..."
+
     if (tag := soup.css_first("meta[property='og:title']")) is not None:
         ctx["title"] = str(tag.attributes["content"])
-    if (tag := soup.css_first("meta[property='og:description']")) is not None:
-        ctx["description"] = str(tag.attributes["content"])
     if (tag := soup.css_first("meta[property='og:image']")) is not None:
         ctx["image"] = str(tag.attributes["content"])
         ctx["card"] = "summary_large_image"
         ctx["ttype"] = "photo"
+
+        if len(ctx["description"]) > 100:
+            ctx["description"] = ctx["description"][:100] + "..."
 
     if (tag := soup.css_first("script[type='application/ld+json']")) is not None and (
         script := tag.text()
