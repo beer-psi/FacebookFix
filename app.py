@@ -4,9 +4,9 @@ from typing import Any
 
 import aiohttp
 import sanic
-from bs4 import BeautifulSoup
 from dotenv import dotenv_values
 from sanic import HTTPResponse, NotFound, Request, Sanic, SanicException, redirect
+from selectolax.parser import HTMLParser
 from yarl import URL
 
 from utils import hd_width_height
@@ -118,14 +118,14 @@ async def handle_404(request: Request, exception: SanicException):
     post_url = request.ctx.post_url
     resp_text = request.ctx.resp_text
 
-    soup = BeautifulSoup(resp_text, "lxml")
+    soup = HTMLParser(resp_text)
 
     ctx = {
         "url": post_url,
     }
 
-    if (tag := soup.select_one("meta[name='twitter:player']")) is not None:
-        player_url = URL(str(tag["content"]))
+    if (tag := soup.css_first("meta[name='twitter:player']")) is not None:
+        player_url = URL(str(tag.attributes["content"]))
         video_url = player_url.query.get("href")
 
         if video_url is not None and not isinstance(exception, ExtractorError):
@@ -135,19 +135,19 @@ async def handle_404(request: Request, exception: SanicException):
             ctx["width"] = player_url.query.get("width", "0")
             ctx["height"] = player_url.query.get("height", "0")
 
-    if (tag := soup.select_one("meta[property='og:title']")) is not None:
-        ctx["title"] = str(tag["content"])
-    if (tag := soup.select_one("meta[property='og:description']")) is not None:
-        ctx["description"] = str(tag["content"])
-    if (tag := soup.select_one("meta[property='og:image']")) is not None:
-        ctx["image"] = str(tag["content"])
+    if (tag := soup.css_first("meta[property='og:title']")) is not None:
+        ctx["title"] = str(tag.attributes["content"])
+    if (tag := soup.css_first("meta[property='og:description']")) is not None:
+        ctx["description"] = str(tag.attributes["content"])
+    if (tag := soup.css_first("meta[property='og:image']")) is not None:
+        ctx["image"] = str(tag.attributes["content"])
         ctx["card"] = "summary_large_image"
         ctx["ttype"] = "photo"
 
     if (
-        tag := soup.select_one("script[type='application/ld+json']")
-    ) is not None and tag.string is not None:
-        data = json.loads(tag.string)
+        tag := soup.css_first("script[type='application/ld+json']")
+    ) is not None and (script := tag.text()) is not None:
+        data = json.loads(script)
         ctx["description"] = data["articleBody"]
         ctx["title"] = data["author"]["name"]
 

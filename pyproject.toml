@@ -14,12 +14,10 @@ python = "^3.11"
 sanic = "^23.3.0"
 sanic-ext = "^23.3.0"
 Jinja2 = "^3.1.2"
-esprima = "^4.0.1"
 aiohttp = "^3.8.4"
 yarl = "^1.9.2"
-beautifulsoup4 = "^4.12.2"
-lxml = "^4.9.2"
 python-dotenv = "^1.0.0"
+selectolax = "^0.3.14"
 
 [tool.poetry.group.dev.dependencies]
 black = "^23.3.0"
