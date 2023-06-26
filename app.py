@@ -6,7 +6,7 @@ import aiohttp
 import sanic
 from bs4 import BeautifulSoup
 from dotenv import dotenv_values
-from sanic import HTTPResponse, Request, Sanic, redirect, SanicException, NotFound
+from sanic import HTTPResponse, NotFound, Request, Sanic, SanicException, redirect
 from yarl import URL
 
 from utils import hd_width_height
@@ -74,10 +74,13 @@ def finish(app, loop):
 @app.on_request
 async def check_ua(request: "Request"):
     url = URL(request.url)
-    if url.path != "/oembed.json" and not UA_REGEX.search(request.headers.get("User-Agent", ""), re.IGNORECASE):
+    if url.path != "/oembed.json" and not UA_REGEX.search(
+        request.headers.get("User-Agent", ""), re.IGNORECASE
+    ):
         url = url.with_host("www.facebook.com").with_scheme("https").with_port(None)
         return redirect(str(url))
-    
+
+
 @app.on_request
 async def fetch_response_text(request: "Request"):
     if request.url != "/oembed.json":
@@ -98,7 +101,7 @@ async def fetch_response_text(request: "Request"):
                 # We're being blocked by Facebook
                 if (proxy := app.ctx.cfg.get("WORKER_PROXY")) is None:
                     return redirect(post_url)
-                
+
                 proxy = URL(proxy).update_query({"url": post_url})
                 async with app.ctx.session.get(proxy) as resp:
                     if not resp.ok:
@@ -109,8 +112,7 @@ async def fetch_response_text(request: "Request"):
 @app.exception(NotFound, ExtractorError)
 @app.ext.template("base.html")
 async def handle_404(request: Request, exception: SanicException):
-    """Blanket handler for unimplemented paths, or paths with failed extractors
-    """
+    """Blanket handler for unimplemented paths, or paths with failed extractors"""
 
     post_url = request.ctx.post_url
     resp_text = request.ctx.resp_text
@@ -140,18 +142,24 @@ async def handle_404(request: Request, exception: SanicException):
         ctx["image"] = str(tag["content"])
         ctx["card"] = "summary_large_image"
         ctx["ttype"] = "photo"
-    
-    if (tag := soup.select_one("script[type='application/ld+json']")) is not None and tag.string is not None:
+
+    if (
+        tag := soup.select_one("script[type='application/ld+json']")
+    ) is not None and tag.string is not None:
         data = json.loads(tag.string)
         ctx["description"] = data["articleBody"]
-        ctx["title"] = data["author"]["name"]    
+        ctx["title"] = data["author"]["name"]
 
         if (image := data.get("image")) is not None:
             ctx["image"] = image["contentUrl"]
             ctx["card"] = "summary_large_image"
             ctx["ttype"] = "photo"
-    
-    if ctx.get("title") is None and ctx.get("description") is None and ctx.get("image") is None:
+
+    if (
+        ctx.get("title") is None
+        and ctx.get("description") is None
+        and ctx.get("image") is None
+    ):
         return redirect(post_url)
 
     return ctx
@@ -289,6 +297,13 @@ async def watch(request: "Request"):
 @app.ext.template("base.html")
 async def videos(request: "Request", username: str, id: str):
     request.ctx.post_url = f"https://www.facebook.com/{username}/videos/{id}"
+    return await _common_watch_handler(request)
+
+
+@app.get("<username>/videos/<slug>/<id>")
+@app.ext.template("base.html")
+async def videos_with_slug(request: "Request", username: str, slug: str, id: str):
+    request.ctx.post_url = f"https://www.facebook.com/{username}/videos/{slug}/{id}"
     return await _common_watch_handler(request)
 
 
