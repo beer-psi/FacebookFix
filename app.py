@@ -1,6 +1,7 @@
 import json
 import re
-from typing import Any
+from asyncio import AbstractEventLoop
+from typing import Any, cast
 
 import aiohttp
 import sanic
@@ -9,12 +10,15 @@ from sanic import HTTPResponse, NotFound, Request, Sanic, SanicException, redire
 from selectolax.parser import HTMLParser
 from yarl import URL
 
+from exceptions import ExtractorError
+from extractors import (
+    extract_embed,
+    extract_meta,
+    extract_photo,
+    extract_reel,
+    extract_video,
+)
 from utils import hd_width_height
-
-
-class ExtractorError(SanicException):
-    pass
-
 
 app = Sanic(__name__)
 app.update_config(
@@ -30,15 +34,6 @@ UA_REGEX = re.compile(
 )
 REEL_DATA_REGEX = re.compile(
     r"\(ScheduledApplyEach,({\"define\":\[\[\"VideoPlayerShakaPerformanceLoggerConfig\".+?)\);"
-)
-WATCH_METADATA_DATA_REGEX = re.compile(
-    r"\(ScheduledApplyEach,(.+?\"CometFeedStoryDefaultMessageRenderingStrategy\".+?)\);"
-)
-PHOTO_METADATA_REGEX = re.compile(
-    r"\(ScheduledApplyEach,(.+?\"__typename\":\"CometFeedStoryActorPhotoStrategy\".+?)\);"
-)
-PHOTO_DATA_REGEX = re.compile(
-    r"\(ScheduledApplyEach,(.+?(?<!\"preloaderID\":)\"adp_CometPhotoRootContentQueryRelayPreloader_[0-9a-f]{23}\".+?)\);"
 )
 headers = {
     "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
@@ -61,7 +56,7 @@ headers = {
 
 
 @app.listener("before_server_start")
-def init(app, loop):
+def init(app: Sanic, loop: AbstractEventLoop):
     app.ctx.session = aiohttp.ClientSession(loop=loop, headers=headers)
     app.ctx.cfg = dotenv_values()
 
@@ -93,7 +88,8 @@ async def fetch_response_text(request: "Request"):
         )
         request.ctx.post_url = post_url
 
-        async with app.ctx.session.get(post_url) as resp:
+        session = cast(aiohttp.ClientSession, app.ctx.session)
+        async with session.get(post_url) as resp:
             if not resp.ok:
                 return redirect(post_url)
             if not "/login/" in resp.url.path:
@@ -124,46 +120,34 @@ async def handle_404(request: Request, exception: SanicException):
         "url": post_url,
     }
 
-    if (tag := soup.css_first("meta[name='twitter:player']")) is not None:
-        player_url = URL(str(tag.attributes["content"]))
-        video_url = player_url.query.get("href")
+    metadata_or_redirect_url = extract_meta(soup, isinstance(exception, ExtractorError))
+    if isinstance(metadata_or_redirect_url, str):
+        return redirect(metadata_or_redirect_url)
+    elif metadata_or_redirect_url is not None:
+        ctx.update(metadata_or_redirect_url)
+        return ctx
 
-        if video_url is not None and not isinstance(exception, ExtractorError):
-            return redirect(URL(video_url).path)
-        else:
-            ctx["player"] = str(player_url)
-            ctx["width"] = player_url.query.get("width", "0")
-            ctx["height"] = player_url.query.get("height", "0")
+    # Use their embed iframe as a last resort
+    url = URL("https://www.facebook.com/plugins/post.php").update_query(
+        {"href": post_url, "show_text": "true"}
+    )
+    async with app.ctx.session.get(url) as resp:
+        if not resp.ok:
+            return redirect(post_url)
+        resp_text = await resp.text()
 
-    if (tag := soup.css_first("meta[property='og:title']")) is not None:
-        ctx["title"] = str(tag.attributes["content"])
-    if (tag := soup.css_first("meta[property='og:description']")) is not None:
-        ctx["description"] = str(tag.attributes["content"])
-    if (tag := soup.css_first("meta[property='og:image']")) is not None:
-        ctx["image"] = str(tag.attributes["content"])
-        ctx["card"] = "summary_large_image"
-        ctx["ttype"] = "photo"
+    soup = HTMLParser(resp_text)
 
-    if (
-        tag := soup.css_first("script[type='application/ld+json']")
-    ) is not None and (script := tag.text()) is not None:
-        data = json.loads(script)
-        ctx["description"] = data["articleBody"]
-        ctx["title"] = data["author"]["name"]
+    metadata_or_redirect_url = extract_embed(
+        soup, isinstance(exception, ExtractorError)
+    )
+    if isinstance(metadata_or_redirect_url, str):
+        return redirect(metadata_or_redirect_url)
+    elif metadata_or_redirect_url is not None:
+        ctx.update(metadata_or_redirect_url)
+        return ctx
 
-        if (image := data.get("image")) is not None:
-            ctx["image"] = image["contentUrl"]
-            ctx["card"] = "summary_large_image"
-            ctx["ttype"] = "photo"
-
-    if (
-        ctx.get("title") is None
-        and ctx.get("description") is None
-        and ctx.get("image") is None
-    ):
-        return redirect(post_url)
-
-    return ctx
+    return redirect(post_url)
 
 
 @app.get("oembed.json")
@@ -185,104 +169,11 @@ async def oembed(request: "Request") -> "HTTPResponse":
     )
 
 
-async def _get_video_data(resp_text: str):
-    data = REEL_DATA_REGEX.search(resp_text)
-    if not data:
-        raise ExtractorError("Failed to get video data")
-
-    data = json.loads(data.group(1))
-
-    stream_cache = next(
-        (x for x in data["require"] if x[0] == "RelayPrefetchedStreamCache"), None
-    )
-    if not stream_cache:
-        raise ExtractorError("Failed to get video data")
-
-    return stream_cache[3][1]["__bbox"]["result"]
-
-
 @app.get("/reel/<id>")
 @app.ext.template("base.html")
 async def reel(request: "Request", id: str):
-    post_url = request.ctx.post_url
-    resp_text = request.ctx.resp_text
-
-    result = await _get_video_data(resp_text)
-    creation_story = result["data"]["video"]["creation_story"]
-    short_form_video_context = creation_story["short_form_video_context"]
-
-    url = short_form_video_context["playback_video"]["playable_url_quality_hd"]
-    if url is None:
-        url = short_form_video_context["playback_video"]["playable_url"]
-    width = short_form_video_context["playback_video"]["width"]
-    height = short_form_video_context["playback_video"]["height"]
-
-    width, height = hd_width_height(width, height)
-
-    ctx = {
-        "id": id,
-        "card": "player",
-        "title": short_form_video_context["video_owner"]["name"],
-        "url": post_url,
-        "video": url,
-        "width": width,
-        "height": height,
-        "ttype": "video",
-    }
-
-    if (message := creation_story.get("message")) is not None:
-        ctx["description"] = message["text"]
-
-    return ctx
-
-
-async def _get_watch_metadata(resp_text: str) -> dict[str, Any]:
-    metadata = WATCH_METADATA_DATA_REGEX.search(resp_text)
-    if not metadata:
-        raise ExtractorError("Failed to get metadata")
-
-    metadata = json.loads(metadata.group(1))
-    stream_cache = next(
-        (x for x in metadata["require"] if x[0] == "RelayPrefetchedStreamCache"), None
-    )
-    if not stream_cache:
-        raise ExtractorError("Failed to get metadata")
-    return stream_cache[3][1]["__bbox"]["result"]["data"]["attachments"][0]["media"]
-
-
-async def _common_watch_handler(request: "Request"):
-    post_url = request.ctx.post_url
-    resp_text = request.ctx.resp_text
-
-    media = await _get_watch_metadata(resp_text)
-    title = media["owner"]["name"]
-    description = media["creation_story"]["comet_sections"]["message"]["story"][
-        "message"
-    ]["text"]
-
-    video_data = await _get_video_data(resp_text)
-    url = video_data["data"]["video"]["story"]["attachments"][0]["media"][
-        "playable_url_quality_hd"
-    ]
-    if url is None:
-        url = video_data["data"]["video"]["story"]["attachments"][0]["media"][
-            "playable_url"
-        ]
-    width = video_data["data"]["video"]["story"]["attachments"][0]["media"]["width"]
-    height = video_data["data"]["video"]["story"]["attachments"][0]["media"]["height"]
-
-    width, height = hd_width_height(width, height)
-
-    return {
-        "card": "player",
-        "title": title,
-        "url": post_url,
-        "description": description,
-        "video": url,
-        "width": width,
-        "height": height,
-        "ttype": "video",
-    }
+    request.ctx.post_url = f"https://www.facebook.com/reel/{id}"
+    return await extract_reel(request.ctx.post_url, request.ctx.resp_text)
 
 
 @app.get("/watch")
@@ -291,72 +182,28 @@ async def watch(request: "Request"):
     id = request.args.get("v", "")
     if not id:
         raise NotFound
-    return await _common_watch_handler(request)
+    return await extract_video(request.ctx.post_url, request.ctx.resp_text)
 
 
 @app.get("<username>/videos/<id>")
 @app.ext.template("base.html")
 async def videos(request: "Request", username: str, id: str):
     request.ctx.post_url = f"https://www.facebook.com/{username}/videos/{id}"
-    return await _common_watch_handler(request)
+    return await extract_video(request.ctx.post_url, request.ctx.resp_text)
 
 
 @app.get("<username>/videos/<slug>/<id>")
 @app.ext.template("base.html")
 async def videos_with_slug(request: "Request", username: str, slug: str, id: str):
     request.ctx.post_url = f"https://www.facebook.com/{username}/videos/{slug}/{id}"
-    return await _common_watch_handler(request)
-
-
-async def _common_photo_handler(request: "Request"):
-    post_url = request.ctx.post_url
-    resp_text = request.ctx.resp_text
-
-    photo_data = PHOTO_DATA_REGEX.search(resp_text)
-    if not photo_data:
-        raise ExtractorError
-
-    photo_data = json.loads(photo_data.group(1))
-    stream_cache = next(
-        (x for x in photo_data["require"] if x[0] == "RelayPrefetchedStreamCache"), None
-    )
-    if not stream_cache:
-        raise ExtractorError
-
-    curr_media = stream_cache[3][1]["__bbox"]["result"]["data"]["currMedia"]
-
-    photo_metadata = PHOTO_METADATA_REGEX.search(resp_text)
-    if not photo_metadata:
-        raise ExtractorError
-
-    photo_metadata = json.loads(photo_metadata.group(1))
-    stream_cache = next(
-        (x for x in photo_metadata["require"] if x[0] == "RelayPrefetchedStreamCache"),
-        None,
-    )
-    if not stream_cache:
-        raise ExtractorError
-    data = stream_cache[3][1]["__bbox"]["result"]["data"]
-
-    ctx = {
-        "card": "summary_large_image",
-        "title": data["owner"]["name"],
-        "url": post_url,
-        "image": curr_media["image"]["uri"],
-        "ttype": "photo",
-    }
-
-    if data["message"] is not None:
-        ctx["description"] = data["message"]["text"]
-
-    return ctx
+    return await extract_video(request.ctx.post_url, request.ctx.resp_text)
 
 
 @app.get("<username>/photos/<set>/<fbid>")
 @app.ext.template("base.html")
 async def photos(request: "Request", username: str, set: str, fbid: str):
     request.ctx.post_url = f"https://www.facebook.com/{username}/photos/{set}/{fbid}"
-    return await _common_photo_handler(request)
+    return await extract_photo(request.ctx.post_url, request.ctx.resp_text)
 
 
 @app.get("photo")
@@ -367,4 +214,4 @@ async def photo(request: "Request"):
     if not fbid:
         raise NotFound
 
-    return await _common_photo_handler(request)
+    return await extract_photo(request.ctx.post_url, request.ctx.resp_text)
