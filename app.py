@@ -18,7 +18,6 @@ from extractors import (
     extract_reel,
     extract_video,
 )
-from utils import hd_width_height
 
 app = Sanic(__name__)
 app.update_config(
