@@ -5,6 +5,7 @@ from typing import Any
 import aiohttp
 import sanic
 from bs4 import BeautifulSoup
+from dotenv import dotenv_values
 from sanic import HTTPResponse, Request, Sanic, redirect, SanicException, NotFound
 from yarl import URL
 
@@ -61,6 +62,7 @@ headers = {
 @app.listener("before_server_start")
 def init(app, loop):
     app.ctx.session = aiohttp.ClientSession(loop=loop, headers=headers)
+    app.ctx.cfg = dotenv_values()
 
 
 @app.listener("after_server_stop")
@@ -90,7 +92,18 @@ async def fetch_response_text(request: "Request"):
         async with app.ctx.session.get(post_url) as resp:
             if not resp.ok:
                 return redirect(post_url)
-            request.ctx.resp_text = await resp.text()
+            if not "/login/" in resp.url.path:
+                request.ctx.resp_text = await resp.text()
+            else:
+                # We're being blocked by Facebook
+                if (proxy := app.ctx.cfg.get("WORKER_PROXY")) is None:
+                    return redirect(post_url)
+                
+                proxy = URL(proxy).update_query({"url": post_url})
+                async with app.ctx.session.get(proxy) as resp:
+                    if not resp.ok:
+                        return redirect(post_url)
+                    request.ctx.resp_text = await resp.text()
 
 
 @app.exception(NotFound, ExtractorError)
