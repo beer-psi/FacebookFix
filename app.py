@@ -25,7 +25,8 @@ app.update_config(
 
 
 UA_REGEX = re.compile(
-    r"bot|facebook|embed|got|firefox\/92|firefox\/38|curl|wget|go-http|yahoo|generator|whatsapp|preview|link|proxy|vkshare|images|analyzer|index|crawl|spider|python|cfnetwork|node|iframely"
+    r"bot|facebook|embed|got|firefox\/92|firefox\/38|curl|wget|go-http|yahoo|generator|whatsapp|preview|link|proxy|vkshare|images|analyzer|index|crawl|spider|python|cfnetwork|node|iframely",
+    re.IGNORECASE,
 )
 REEL_DATA_REGEX = re.compile(
     r"\(ScheduledApplyEach,({\"define\":\[\[\"VideoPlayerShakaPerformanceLoggerConfig\".+?)\);"
@@ -75,7 +76,7 @@ def finish(app, loop):
 async def check_ua(request: "Request"):
     url = URL(request.url)
     if url.path != "/oembed.json" and not UA_REGEX.search(
-        request.headers.get("User-Agent", ""), re.IGNORECASE
+        request.headers.get("User-Agent", "")
     ):
         url = url.with_host("www.facebook.com").with_scheme("https").with_port(None)
         return redirect(str(url))
