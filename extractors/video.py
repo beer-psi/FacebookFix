@@ -3,7 +3,7 @@ import re
 from typing import Any
 
 from exceptions import ExtractorError
-from utils import hd_width_height
+from utils import hd_width_height, shorten_description
 
 REEL_DATA_REGEX = re.compile(
     r"\(ScheduledApplyEach,({\"define\":\[\[\"VideoPlayerShakaPerformanceLoggerConfig\".+?)\);"
@@ -46,11 +46,11 @@ async def get_watch_metadata(resp_text: str) -> dict[str, Any]:
 async def extract_video(post_url: str, resp_text: str):
     media = await get_watch_metadata(resp_text)
     title = media["owner"]["name"]
-    description = media["creation_story"]["comet_sections"]["message"]["story"][
-        "message"
-    ]["text"]
-    if len(description) > 100:
-        description = description[:100] + "..."
+    description = shorten_description(
+        media["creation_story"]["comet_sections"]["message"]["story"][
+            "message"
+        ]["text"]
+    )
 
     video_data = await get_video_data(resp_text)
     url = video_data["data"]["video"]["story"]["attachments"][0]["media"][
@@ -102,8 +102,6 @@ async def extract_reel(post_url: str, resp_text: str) -> dict[str, Any]:
     }
 
     if (message := creation_story.get("message")) is not None:
-        ctx["description"] = message["text"]
-        if len(ctx["description"]) > 100:
-            ctx["description"] = ctx["description"][:100] + "..."
+        ctx["description"] = shorten_description(message["text"])
 
     return ctx

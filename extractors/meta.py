@@ -4,6 +4,8 @@ from typing import Any
 from selectolax.parser import HTMLParser
 from yarl import URL
 
+from utils import shorten_description
+
 
 def extract_meta(
     soup: HTMLParser, extraction_failed: bool
@@ -24,8 +26,7 @@ def extract_meta(
             ctx["width"] = player_url.query.get("width", "0")
             ctx["height"] = player_url.query.get("height", "0")
 
-            if len(ctx["description"]) > 100:
-                ctx["description"] = ctx["description"][:100] + "..."
+            ctx["description"] = shorten_description(ctx["description"])
 
     if (tag := soup.css_first("meta[property='og:title']")) is not None:
         ctx["title"] = str(tag.attributes["content"])
@@ -33,9 +34,6 @@ def extract_meta(
         ctx["image"] = str(tag.attributes["content"])
         ctx["card"] = "summary_large_image"
         ctx["ttype"] = "photo"
-
-        if len(ctx["description"]) > 100:
-            ctx["description"] = ctx["description"][:100] + "..."
 
     if (tag := soup.css_first("script[type='application/ld+json']")) is not None and (
         script := tag.text()

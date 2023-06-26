@@ -26,9 +26,6 @@ def extract_embed(
         ctx["card"] = "summary_large_image"
         ctx["ttype"] = "photo"
 
-        if len(ctx["description"]) > 100:
-            ctx["description"] = ctx["description"][:100] + "..."
-
     if (
         ctx.get("title") is None
         and ctx.get("description") is None

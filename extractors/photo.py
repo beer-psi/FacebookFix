@@ -49,7 +49,5 @@ async def extract_photo(post_url: str, resp_text: str) -> dict[str, Any]:
 
     if data["message"] is not None:
         ctx["description"] = data["message"]["text"]
-        if len(ctx["description"]) > 100:
-            ctx["description"] = ctx["description"][:100] + "..."
 
     return ctx
