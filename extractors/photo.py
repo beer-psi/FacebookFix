@@ -4,6 +4,8 @@ from typing import Any
 
 from exceptions import ExtractorError
 
+from utils import shorten_description
+
 PHOTO_METADATA_REGEX = re.compile(
     r"\(ScheduledApplyEach,(.+?\"__typename\":\"CometFeedStoryActorPhotoStrategy\".+?)\);"
 )
@@ -48,6 +50,6 @@ async def extract_photo(post_url: str, resp_text: str) -> dict[str, Any]:
     }
 
     if data["message"] is not None:
-        ctx["description"] = data["message"]["text"]
+        ctx["description"] = shorten_description(data["message"]["text"], 347)
 
     return ctx

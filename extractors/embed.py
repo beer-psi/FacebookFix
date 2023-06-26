@@ -3,6 +3,8 @@ from typing import Any
 from selectolax.parser import HTMLParser
 from yarl import URL
 
+from utils import shorten_description
+
 
 def extract_embed(
     soup: HTMLParser, extraction_failed: bool
@@ -18,7 +20,7 @@ def extract_embed(
         return URL(href).path
 
     if (tag := soup.css_first("div[data-testid='post_message']")) is not None:
-        ctx["description"] = tag.text()
+        ctx["description"] = shorten_description(tag.text(), 347)
     if (tag := soup.css_first("span._2_79._50f7")) is not None:
         ctx["title"] = tag.text()
     if (tag := soup.css_first("img._1p6f._1p6g")) is not None:
