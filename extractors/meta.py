@@ -50,7 +50,7 @@ def extract_meta(
     if (
         (tag := soup.css_first("meta[property='og:image'], meta[name='twitter:image']")) is not None
         and (image := str(tag.attributes.get("content"))) is not None
-        and IMAGE_EXTENSION_REGEX.search(image) is not None
+        and IMAGE_EXTENSION_REGEX.search(URL(image).path) is not None
     ):
         ctx["image"] = image
         ctx["card"] = "summary_large_image"
