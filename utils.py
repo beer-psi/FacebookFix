@@ -1,5 +1,7 @@
 import re
 
+from selectolax.parser import Node
+
 HR_REGEX = re.compile(r"^[-_—-]{3,}$", re.MULTILINE)
 
 def hd_width_height(width: int, height: int) -> tuple[int, int]:
@@ -24,3 +26,11 @@ def shorten_description(description: str, limit: int = 100) -> str:
     if len(description) > limit:
         description = description[:limit] + "..."
     return description.strip()
+
+
+def text_with_newlines(node: Node) -> str:
+    for br in node.css("br"):
+        br.insert_after("\\n")
+    for p in node.css("p"):
+        p.insert_after("\\n")
+    return node.text().replace("\\n", "\n").replace("\n ", "\n").strip()
