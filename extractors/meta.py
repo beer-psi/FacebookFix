@@ -8,12 +8,22 @@ from yarl import URL
 from utils import shorten_description
 
 IMAGE_EXTENSION_REGEX = re.compile(r"\.(?:jpg|jpeg|png)$")
+REFRESH_META_URL = re.compile(r"\d+;\s*url=(.+)", re.IGNORECASE)
 
 
 def extract_meta(
     soup: HTMLParser, extraction_failed: bool
 ) -> dict[str, Any] | str | None:
     ctx = {}
+
+    if (
+        (tag := soup.css_first("meta[http-equiv='refresh']")) is not None
+        and (content := tag.attributes.get("content")) is not None
+        and (match := REFRESH_META_URL.search(content)) is not None
+    ):
+        url = URL(match.group(1))
+        if "/login/" in url.path:
+            return None
 
     if (
         (tag := soup.css_first("meta[property='og:description'], meta[name='twitter:description'], meta[name='description']")) is not None
