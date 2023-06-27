@@ -13,18 +13,18 @@ def hd_width_height(width: int, height: int) -> tuple[int, int]:
 
 
 def shorten_description(description: str, limit: int = 100) -> str:
-    description = str(HR_REGEX.split(description)[0])
+    description = str(HR_REGEX.split(description)[0]).strip()
     if len(description) > limit:
         splits = description.split("\n")
         description = splits[0]
         for split in splits[1:]:
             if len(description) + len(split) > limit:
-                description = description.strip()
+                description = description.strip().rstrip(".")
                 description += "..."
                 break
             description += "\n" + split
     if len(description) > limit:
-        description = description[:limit] + "..."
+        description = description[:limit].rstrip(".") + "..."
     return description.strip()
 
 
