@@ -1,7 +1,5 @@
-import json
 import re
 from asyncio import AbstractEventLoop
-from typing import Any, cast
 
 import aiohttp
 import sanic
@@ -10,7 +8,7 @@ from sanic import HTTPResponse, NotFound, Request, Sanic, SanicException, redire
 from selectolax.parser import HTMLParser
 from yarl import URL
 
-from exceptions import ExtractorError
+from exceptions import ExtractorError, FetchException
 from extractors import (
     extract_embed,
     extract_meta,
@@ -18,6 +16,7 @@ from extractors import (
     extract_reel,
     extract_video,
 )
+from utils import fetch_text
 
 app = Sanic(__name__)
 app.update_config(
@@ -30,9 +29,6 @@ app.update_config(
 UA_REGEX = re.compile(
     r"bot|facebook|embed|got|firefox\/92|firefox\/38|curl|wget|go-http|yahoo|generator|whatsapp|preview|link|proxy|vkshare|images|analyzer|index|crawl|spider|python|cfnetwork|node|iframely",
     re.IGNORECASE,
-)
-REEL_DATA_REGEX = re.compile(
-    r"\(ScheduledApplyEach,({\"define\":\[\[\"VideoPlayerShakaPerformanceLoggerConfig\".+?)\);"
 )
 headers = {
     "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
@@ -70,40 +66,11 @@ def finish(app, loop):
 @app.on_request
 async def check_ua(request: "Request"):
     url = URL(request.url)
-    if url.path != "/oembed.json" and not UA_REGEX.search(
+    if url.path not in ["/oembed.json", "/rendercombined.jpg"] and not UA_REGEX.search(
         request.headers.get("User-Agent", "")
     ):
         url = url.with_host("www.facebook.com").with_scheme("https").with_port(None)
         return redirect(str(url))
-
-
-@app.on_request
-async def fetch_response_text(request: "Request"):
-    if request.url != "/oembed.json":
-        post_url = str(
-            URL(request.url)
-            .with_host("www.facebook.com")
-            .with_scheme("https")
-            .with_port(None)
-        )
-        request.ctx.post_url = post_url
-
-        session = cast(aiohttp.ClientSession, app.ctx.session)
-        async with session.get(post_url) as resp:
-            if not resp.ok:
-                return redirect(post_url)
-            if not "/login/" in resp.url.path:
-                request.ctx.resp_text = await resp.text()
-            else:
-                # We're being blocked by Facebook
-                if (proxy := app.ctx.cfg.get("WORKER_PROXY")) is None:
-                    return redirect(post_url)
-
-                proxy = URL(proxy).update_query({"url": post_url})
-                async with app.ctx.session.get(proxy) as resp:
-                    if not resp.ok:
-                        return redirect(post_url)
-                    request.ctx.resp_text = await resp.text()
 
 
 @app.exception(NotFound, ExtractorError)
@@ -150,6 +117,11 @@ async def handle_404(request: Request, exception: SanicException):
     return redirect(post_url)
 
 
+@app.exception(FetchException)
+async def handle_fetch_exception(request: "Request", exception: FetchException):
+    return redirect(request.ctx.post_url)
+
+
 @app.get("oembed.json")
 async def oembed(request: "Request") -> "HTTPResponse":
     title = request.args.get("title", "")
@@ -173,6 +145,7 @@ async def oembed(request: "Request") -> "HTTPResponse":
 @app.ext.template("base.html")
 async def reel(request: "Request", id: str):
     request.ctx.post_url = f"https://www.facebook.com/reel/{id}"
+    request.ctx.resp_text = await fetch_text(app.ctx.session, request.ctx.post_url, worker_proxy=app.ctx.cfg.get("WORKER_PROXY"))
     return await extract_reel(request.ctx.post_url, request.ctx.resp_text)
 
 
@@ -182,6 +155,8 @@ async def watch(request: "Request"):
     id = request.args.get("v", "")
     if not id:
         raise NotFound
+    request.ctx.post_url = f"https://www.facebook.com/watch/?v={id}"
+    request.ctx.resp_text = await fetch_text(app.ctx.session, request.ctx.post_url, worker_proxy=app.ctx.cfg.get("WORKER_PROXY"))
     return await extract_video(request.ctx.post_url, request.ctx.resp_text)
 
 
@@ -189,6 +164,7 @@ async def watch(request: "Request"):
 @app.ext.template("base.html")
 async def videos(request: "Request", username: str, id: str):
     request.ctx.post_url = f"https://www.facebook.com/{username}/videos/{id}"
+    request.ctx.resp_text = await fetch_text(app.ctx.session, request.ctx.post_url, worker_proxy=app.ctx.cfg.get("WORKER_PROXY"))
     return await extract_video(request.ctx.post_url, request.ctx.resp_text)
 
 
@@ -196,6 +172,7 @@ async def videos(request: "Request", username: str, id: str):
 @app.ext.template("base.html")
 async def videos_with_slug(request: "Request", username: str, slug: str, id: str):
     request.ctx.post_url = f"https://www.facebook.com/{username}/videos/{slug}/{id}"
+    request.ctx.resp_text = await fetch_text(app.ctx.session, request.ctx.post_url, worker_proxy=app.ctx.cfg.get("WORKER_PROXY"))
     return await extract_video(request.ctx.post_url, request.ctx.resp_text)
 
 
@@ -203,6 +180,7 @@ async def videos_with_slug(request: "Request", username: str, slug: str, id: str
 @app.ext.template("base.html")
 async def photos(request: "Request", username: str, set: str, fbid: str):
     request.ctx.post_url = f"https://www.facebook.com/{username}/photos/{set}/{fbid}"
+    request.ctx.resp_text = await fetch_text(app.ctx.session, request.ctx.post_url, worker_proxy=app.ctx.cfg.get("WORKER_PROXY"))
     return await extract_photo(request.ctx.post_url, request.ctx.resp_text)
 
 
@@ -213,5 +191,27 @@ async def photo(request: "Request"):
     fbid = request.args.get("fbid", "")
     if not fbid:
         raise NotFound
-
+    request.ctx.post_url = f"https://www.facebook.com/photo.php?fbid={fbid}"
+    request.ctx.resp_text = await fetch_text(app.ctx.session, request.ctx.post_url, worker_proxy=app.ctx.cfg.get("WORKER_PROXY"))
     return await extract_photo(request.ctx.post_url, request.ctx.resp_text)
+
+# https://fb.watch/lPjwDfimA4/
+@app.get(r"/<video:[0-9A-Za-z]{10}>/")
+@app.ext.template("base.html")
+async def watch_video(request: "Request", video: str):
+    request.ctx.post_url = f"https://fb.watch/{video}/"
+    request.ctx.resp_text = await fetch_text(app.ctx.session, request.ctx.post_url, worker_proxy=app.ctx.cfg.get("WORKER_PROXY"))
+    return await extract_video(request.ctx.post_url, request.ctx.resp_text)
+
+
+# @app.get("story.php")
+# @app.ext.template("base.html")
+# async def story(request: "Request"):
+#     story_fbid = request.args.get("story_fbid", "")
+#     fbid = request.args.get("id", "")
+#     if not story_fbid or not fbid:
+#         raise NotFound
+#     request.ctx.post_url = f"https://www.facebook.com/story.php?story_fbid={story_fbid}&id={fbid}"
+#     request.ctx.resp_text = await fetch_text(app.ctx.session, URL(request.ctx.post_url).with_host("m.facebook.com"), worker_proxy=app.ctx.cfg.get("WORKER_PROXY"))
+#     return sanic.text(request.ctx.resp_text)
+#     return await extract_story(request.ctx.post_url, request.ctx.resp_text)

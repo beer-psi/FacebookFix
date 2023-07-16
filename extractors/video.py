@@ -91,7 +91,6 @@ async def extract_reel(post_url: str, resp_text: str) -> dict[str, Any]:
     width, height = hd_width_height(width, height)
 
     ctx = {
-        "id": id,
         "card": "player",
         "title": short_form_video_context["video_owner"]["name"],
         "url": post_url,
